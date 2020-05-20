@@ -2,9 +2,9 @@
 
 
 References:
-   * *Labeled LDA: A supervised topic model for credit attribution in multi-labeled corpora, Daniel Ramage...*
-   * *Parameter estimation for text analysis, Gregor Heinrich.*
-   * *Latent Dirichlet Allocation, David M. Blei, Andrew Y. Ng...*
+   * *RAMAGE, Daniel et al. Labeled LDA: A supervised topic model for credit attribution in multi-labeled corpora. In: Proceedings of the 2009 Conference on Empirical Methods in Natural Language Processing: Volume 1-Volume 1. Association for Computational Linguistics, 2009. p. 248-256.*
+   * *HEINRICH, Gregor. Parameter estimation for text analysis. Technical report, 2005.*
+   * *LBLEI, David M.; NG, Andrew Y.; JORDAN, Michael I. Latent dirichlet allocation. Journal of machine Learning research, v. 3, n. Jan, p. 993-1022, 2003*
    
 ### An efficient implementation based on Gibbs sampling
 
