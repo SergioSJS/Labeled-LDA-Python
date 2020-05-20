@@ -3,24 +3,29 @@
 # @Author: Jiahong Zhou
 # @Date: 2018-10-20
 # @Email: JoeZJiahong@gmail.com
+# @Fork-Author: Sérgio de Sousa
+# @Date: 2020-05-20
+# @sergio7sjs@gmail.com
 # implement of L-LDA Model(Labeled Latent Dirichlet Allocation Model)
 # References:
-#   i.      Labeled LDA: A supervised topic model for credit attribution in multi-labeled corpora, Daniel Ramage...
-#   ii.     Parameter estimation for text analysis, Gregor Heinrich.
-#   iii.    Latent Dirichlet Allocation, David M. Blei, Andrew Y. Ng...
+#   i.      RAMAGE, Daniel et al. Labeled LDA: A supervised topic model for credit attribution in 
+#       multi-labeled corpora. In: Proceedings of the 2009 Conference on Empirical Methods in Natural 
+#       Language Processing: Volume 1-Volume 1. Association for Computational Linguistics, 2009. p. 248-256.
+#   ii.     HEINRICH, Gregor. Parameter estimation for text analysis. Technical report, 2005.
+#   iii.    LBLEI, David M.; NG, Andrew Y.; JORDAN, Michael I. Latent dirichlet allocation. Journal of 
+#       machine Learning research, v. 3, n. Jan, p. 993-1022, 2003.
+
 
 import numpy as np
 import os
 import json
-from concurrent import futures
-import copy_reg
 import types
+import copy
 
 
 class LldaModel:
     """
     L-LDA(Labeled Latent Dirichlet Allocation Model)
-
     @field K: the number of topics
     @field alpha_vector: the prior distribution of theta_m
                          str("50_div_K"): means [K/50, K/50, ...],
@@ -47,7 +52,6 @@ class LldaModel:
     @field last_beta: the parameter `beta` of last training iteration
     @field Lambda: a matrix, shape is M * K,
                    Lambda[m][k] is 1 means topic k is a label of document m
-
     # derivative fields
     @field Doc2TopicCount: a matrix, shape is M * K,
                            Doc2TopicCount[m][k] is the times of topic k sampled in document m
@@ -60,11 +64,9 @@ class LldaModel:
     @field alpha_vector_Lambda_sum: a vector, self.alpha_vector_Lambda.sum(axis=1)
     @field eta_vector_sum: float value, sum(self.eta_vector)
     @field Topic2TermCountSum: a vector, self.Topic2TermCount.sum(axis=1)
-
     """
-    def __init__(self, alpha_vector="50_div_K", eta_vector=None, labeled_documents=None):
+    def __init__(self, alpha_vector="50_div_K", eta_vector=None, labeled_documents=None, common_topic=-1):
         """
-
         :param alpha_vector: the prior distribution of theta_m
         :param eta_vector: the prior distribution of beta_k
         :param labeled_documents: a iterable of tuple(doc, iterable of label), contains all doc and their labels
@@ -86,6 +88,7 @@ class LldaModel:
         self.all_perplexities = []
         self.last_beta = None
         self.Lambda = None
+        self.common_topic=common_topic
 
         # derivative fields:
         # the following fields could reduce operations in training and inference
@@ -100,7 +103,7 @@ class LldaModel:
         self.Topic2TermCountSum = None
 
         if labeled_documents is not None:
-            self._load_labeled_documents(labeled_documents)
+            self._load_labeled_documents(copy.copy(labeled_documents))
 
         pass
 
@@ -114,11 +117,9 @@ class LldaModel:
         self.Doc2TopicCount = np.zeros((self.M, self.K), dtype=int)
         self.Topic2TermCount = np.zeros((self.K, self.T), dtype=int)
         for m in range(self.M):
-            # print self.Z[m]
+
             for t, z in zip(self.W[m], self.Z[m]):
                 k = z
-                # print "[m=%s, k=%s]" % (m, k)
-                # print "[k=%s, t=%s]" % (k, t)
                 self.Doc2TopicCount[m, k] += 1
                 self.Topic2TermCount[k, t] += 1
 
@@ -145,7 +146,7 @@ class LldaModel:
             doc_corpus.append(doc_words)
             if labels is None:
                 labels = []
-            labels.append("common_topic")
+            labels.append(self.common_topic)
             labels_corpus.append(labels)
             all_words.extend(doc_words)
             all_labels.extend(labels)
@@ -191,11 +192,9 @@ class LldaModel:
 
         self.Z = []
         for m in range(self.M):
-            # print "self.Lambda[m]: ", self.Lambda[m]
             numerator_vector = self.Lambda[m] * self.alpha_vector
             p_vector = 1.0 * numerator_vector / sum(numerator_vector)
-            # print p_vector
-            # print "p_vector: ", p_vector
+
             # z_vector is a vector of a document,
             # just like [2, 3, 6, 0], which means this doc have 4 word and them generated
             # from the 2nd, 3rd, 6th, 0th topic, respectively
@@ -214,7 +213,7 @@ class LldaModel:
         """
         if random_state is not None:
             return random_state.multinomial(1, p_vector).argmax()
-        return np.random.multinomial(1, p_vector).argmax()
+        return int(np.random.multinomial(1, p_vector).argmax())
 
     def _gibbs_sample_training(self):
         """
@@ -260,14 +259,13 @@ class LldaModel:
                 theta_vector = numerator_theta_vector
 
                 p_vector = beta_vector * theta_vector
-                # print p_vector
                 """
                 for some special document m (only have one word) p_vector may be zero here, sum(p_vector) will be zero too
                 1.0 * p_vector / sum(p_vector) will be [...nan...]
                 so we should avoid inputting the special document 
                 """
                 p_vector = 1.0 * p_vector / sum(p_vector)
-                # print p_vector
+
                 sample_z = LldaModel._multinomial_sample(p_vector)
                 self.Z[m][n] = sample_z
 
@@ -277,7 +275,7 @@ class LldaModel:
                 self.Topic2TermCountSum[k] += 1
                 count += 1
         assert count == self.WN
-        print "gibbs sample count: ", self.WN
+        print("gibbs sample count: ", self.WN)
         self.iteration += 1
         self.all_perplexities.append(self.perplexity())
         pass
@@ -331,9 +329,8 @@ class LldaModel:
                 theta_vector = numerator_theta_vector
 
                 p_vector = beta_vector * theta_vector
-                # print p_vector
                 p_vector = 1.0 * p_vector / sum(p_vector)
-                # print p_vector
+
                 sample_z = LldaModel._multinomial_sample(p_vector)
                 z_vector[n] = sample_z
 
@@ -426,16 +423,16 @@ class LldaModel:
     #     theta_new = 1.0 * numerator_theta_vector / denominator_theta
     #     return theta_new
 
-    def training(self, iteration=10, log=False):
+    def fit(self, iteration=10, log=False):
         """
-        training this model with gibbs sampling
+        fit this model with gibbs sampling
         :param log: print perplexity after every gibbs sampling if True
         :param iteration: the times of iteration
         :return: None
         """
         for i in range(iteration):
             if log:
-                print "after iteration: %s, perplexity: %s" % (self.iteration, self.perplexity())
+                print("after iteration: %s, perplexity: %s" % (self.iteration, self.perplexity()))
             self._gibbs_sample_training()
         pass
 
@@ -631,6 +628,7 @@ class LldaModel:
             self.WN = 0
             self.LN = 0
             self.iteration = 0
+            self.common_topic = -1
 
             # the following fields cannot be dumped into json file
             # we need write them with np.save() and read them with np.load()
@@ -660,13 +658,13 @@ class LldaModel:
         :return: None if file doesn't exist or can not convert to an object by json, else return the object
         """
         if os.path.exists(file_name) is False:
-            print ("Error read path: [%s]" % file_name)
+            print("Error read path: [%s]" % file_name)
             return None
         with open(file_name, 'r') as f:
             try:
                 obj = json.load(f)
             except Exception:
-                print ("Error json: [%s]" % f.read()[0:10])
+                print("Error json: [%s]" % f.read()[0:10])
                 return None
         return obj
 
@@ -682,15 +680,23 @@ class LldaModel:
         LldaModel._find_and_create_dirs(dirname)
         try:
             with open(file_name, "w") as f:
-                json.dump(target_object, f, skipkeys=False, ensure_ascii=False, check_circular=True, allow_nan=True, cls=None, indent=True, separators=None, encoding="utf-8", default=None, sort_keys=False)
-        except Exception, e:
+                json.dump(target_object, f, 
+                          skipkeys=False, 
+                          ensure_ascii=False, 
+                          check_circular=True, 
+                          allow_nan=True, 
+                          cls=None, 
+                          indent=True, 
+                          separators=None, 
+                           
+                          default=None, 
+                          sort_keys=False)
+        except Exception as e:
             message = "Write [%s...] to file [%s] error: json.dump error" % (str(target_object)[0:10], file_name)
-            print ("%s\n\t%s" % (message, e.message))
-            print "e.message: ", e.message
+            print("{}\n\t{}".format(message, e))
             return False
-        else:
-            # print ("Write %s" % file_name)
-            return True
+
+        return True
 
     @staticmethod
     def _find_and_create_dirs(dir_name):
@@ -730,6 +736,7 @@ class LldaModel:
         save_model.WN = self.WN
         save_model.LN = self.LN
         save_model.iteration = self.iteration
+        save_model.common_topic = self.common_topic
 
         save_model_path = os.path.join(dir_name, "llda_model.json")
         LldaModel._write_object_to_file(save_model_path, save_model.__dict__)
@@ -768,6 +775,7 @@ class LldaModel:
         self.WN = save_model.WN
         self.LN = save_model.LN
         self.iteration = save_model.iteration
+        self.common_topic = save_model.common_topic
 
         self.Lambda = np.load(os.path.join(dir_name, "Lambda.npy"))
 
@@ -779,7 +787,7 @@ class LldaModel:
                 self.alpha_vector_Lambda = np.load(os.path.join(dir_name, "alpha_vector_Lambda.npy"))
                 self.eta_vector_sum = np.load(os.path.join(dir_name, "eta_vector_sum.npy"))
                 self.Topic2TermCountSum = np.load(os.path.join(dir_name, "Topic2TermCountSum.npy"))
-            except IOError or ValueError, e:
+            except IOError or ValueError as e:
                 print("%s: load derivative properties fail, initialize them with basic properties" % e)
                 self._initialize_derivative_fields()
         else:
@@ -805,7 +813,7 @@ class LldaModel:
             new_doc_corpus.append(doc_words)
             if labels is None:
                 labels = []
-            labels.append("common_topic")
+            labels.append(self.common_topic)
             new_labels_corpus.append(labels)
             new_words.extend(doc_words)
             new_labels.extend(labels)
@@ -849,7 +857,7 @@ class LldaModel:
                     # set all value of self.Lambda[m] to 1.0
                     self.Lambda[m] += 1.0
                 continue
-            # print m, old_M
+
             if len(new_labels_corpus[m-old_M]) == 1:
                 new_labels_corpus[m-old_M] = self.topics
             for label in new_labels_corpus[m-old_M]:
@@ -862,11 +870,10 @@ class LldaModel:
 
         # self.Z = []
         for m in range(old_M, self.M):
-            # print "self.Lambda[m]: ", self.Lambda[m]
+
             numerator_vector = self.Lambda[m] * self.alpha_vector
             p_vector = numerator_vector / sum(numerator_vector)
-            # print p_vector
-            # print "p_vector: ", p_vector
+
             # z_vector is a vector of a document,
             # just like [2, 3, 6, 0], which means this doc have 4 word and them generated
             # from the 2nd, 3rd, 6th, 0th topic, respectively
@@ -945,7 +952,3 @@ class LldaModel:
         if with_probabilities:
             return terms[:k]
         return [term for term, p in terms[:k]]
-
-if __name__ == "__main__":
-    pass
-
