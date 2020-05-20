@@ -103,7 +103,7 @@ class LldaModel:
         self.Topic2TermCountSum = None
 
         if labeled_documents is not None:
-            self._load_labeled_documents(copy.copy(labeled_documents))
+            self._load_labeled_documents(copy.deepcopy(labeled_documents))
 
         pass
 
